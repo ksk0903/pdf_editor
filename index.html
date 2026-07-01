@@ -11,10 +11,14 @@
      pdf.js   : PDF 렌더링(썸네일/이미지 변환/좌표·텍스트 추출)
      SheetJS  : 추출 결과 → 엑셀(.xlsx)
      비밀번호(암호화/해제)는 사용 시점에 @cantoo/pdf-lib 를 동적 로드합니다. -->
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css" />
-<script src="https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+<!-- 글꼴은 렌더링을 막지 않도록 비동기 로드(사내망에서 화면이 멈추지 않게) -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css" media="print" onload="this.media='all'" />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nanum+Brush+Script&family=Nanum+Pen+Script&family=Gaegu:wght@400;700&family=Gowun+Batang:wght@400;700&display=swap" media="print" onload="this.media='all'">
+<noscript>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css" />
+</noscript>
 
 <style>
 /* ============================================================
@@ -383,7 +387,12 @@ table.rt tr:hover td{background:#FBFCFE}
 }
 .scrim{display:none;position:fixed;inset:58px 0 0;background:rgba(11,34,54,.4);z-index:40}
 .scrim.show{display:block}
-</style>
+/* 워터마크 날짜 버튼 */
+.wm-date-btn{background:var(--teal-600);border:1px solid var(--teal-600);color:#fff;font-weight:700;font-size:13.5px;
+  padding:9px 16px;border-radius:8px;box-shadow:0 2px 6px rgba(13,148,136,.28);transition:transform .06s,box-shadow .15s,background .15s}
+.wm-date-btn:hover{background:#0B6B62;border-color:#0B6B62;box-shadow:0 3px 10px rgba(13,148,136,.38)}
+.wm-date-btn:active{transform:translateY(1px)}
+
 </head>
 <body>
 <div class="app">
@@ -396,8 +405,7 @@ table.rt tr:hover td{background:#FBFCFE}
     <div class="brand">
       <div class="brand__mark">N</div>
       <div>
-        <div class="brand__name">PDF 통합 도구</div>
-        <div class="brand__sub">네패스 코코아팹 · 사내 문서 처리</div>
+        <div class="brand__name">네패스 코코아팹</div>
       </div>
     </div>
     <div class="badge-local" title="이 작업은 100% 이 PC에서 처리되며 외부로 전송되지 않습니다">
@@ -514,6 +522,7 @@ table.rt tr:hover td{background:#FBFCFE}
           <div class="dropzone__hint">또는 <b>클릭해서 파일 선택</b></div>
           <input type="file" accept="application/pdf" hidden data-input="organize">
         </div>
+        <div class="filelist" data-files="organize"></div>
         <div id="orgToolbar" style="display:none;margin-top:16px">
           <div class="btn-row" style="margin-top:0">
             <button class="btn" id="orgRotateSel"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0115-6.7L21 8"/></svg>선택 회전</button>
@@ -624,6 +633,12 @@ table.rt tr:hover td{background:#FBFCFE}
           <div class="field"><label class="field__label">색상</label><input class="input" id="wmColor" type="color" value="#0F2A43" style="height:42px;padding:4px"></div>
         </div>
         <label class="check"><input type="checkbox" id="wmTile">바둑판식으로 반복 배치(여러 개)</label>
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:12px;padding:12px 14px;background:var(--teal-50);border:1px solid #B6E9E2;border-radius:10px">
+          <span style="font-size:13px;font-weight:600;color:#0B6B62;display:flex;align-items:center;gap:6px">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>문구에 날짜 자동 입력</span>
+          <button class="btn wm-date-btn" id="wmDate" type="button">＋ 날짜</button>
+          <button class="btn wm-date-btn" id="wmDateTime" type="button">＋ 날짜·시간</button>
+        </div>
         <div class="btn-row">
           <button class="btn btn--primary btn--lg" data-act="watermark" disabled>워터마크 적용</button>
           <button class="btn" id="wmPreviewBtn" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></svg>미리보기</button>
@@ -717,7 +732,7 @@ table.rt tr:hover td{background:#FBFCFE}
           <div class="dropzone__icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 16V4M7 9l5-5 5 5"/><path d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2"/></svg></div>
           <div class="dropzone__title">PDF로 묶을 이미지들을 올려주세요</div>
           <div class="dropzone__hint">또는 <b>클릭해서 파일 선택</b> · JPG/PNG, 여러 장 가능 (드래그로 순서 변경)</div>
-          <input type="file" accept="image/png,image/jpeg" multiple hidden data-input="img2pdf">
+          <input type="file" accept="image/*,.heic,.heif" multiple hidden data-input="img2pdf">
         </div>
         <div class="filelist" data-files="img2pdf"></div>
         <div class="field" style="margin-top:18px"><label class="field__label">페이지 크기</label>
@@ -805,6 +820,7 @@ table.rt tr:hover td{background:#FBFCFE}
       <div class="card"><div class="card__head"><span class="step">2</span><h3>서명/도장 만들기</h3></div><div class="card__body">
         <div class="field"><div class="seg" id="sigMode">
           <button class="active" data-m="draw">직접 그리기</button>
+          <button data-m="text">텍스트로 만들기</button>
           <button data-m="upload">도장 이미지 업로드</button>
         </div></div>
         <div id="sigDrawPane">
@@ -813,15 +829,43 @@ table.rt tr:hover td{background:#FBFCFE}
             <span style="display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--ink-500)">펜 색
               <input type="color" id="sigColor" value="#0B2236" style="width:34px;height:30px;border:1px solid var(--line);border-radius:6px;padding:2px;cursor:pointer"></span>
             <button class="btn btn--ghost" id="sigClear">지우기</button>
+            <button class="btn" id="sigDlDraw" disabled style="margin-left:auto"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0l-4-4m4 4l4-4"/><path d="M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2"/></svg>서명 이미지 저장</button>
+          </div>
+        </div>
+        <div id="sigTextPane" style="display:none">
+          <div class="row2">
+            <div class="field"><label class="field__label">서명 문구(이름)</label><input class="input" id="sigTxt" value="홍길동" placeholder="예: 홍길동 / 네패스 코코아팹"></div>
+            <div class="field"><label class="field__label">글꼴</label>
+              <select class="select" id="sigFont">
+                <option value="'Nanum Pen Script', cursive">나눔 펜 (손글씨)</option>
+                <option value="'Nanum Brush Script', cursive">나눔 붓 (손글씨)</option>
+                <option value="'Gaegu', cursive">개구 (손글씨)</option>
+                <option value="'Gowun Batang', serif">고운바탕 (명조)</option>
+                <option value="Pretendard, sans-serif">프리텐다드 (고딕)</option>
+              </select>
+            </div>
+          </div>
+          <div class="row2">
+            <div class="field"><label class="field__label">글자 크기</label><input class="input" id="sigTxtSize" type="number" min="24" max="200" value="84"></div>
+            <div class="field"><label class="field__label">색상</label><input class="input" id="sigTxtColor" type="color" value="#0B2236" style="height:42px;padding:4px"></div>
+          </div>
+          <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+            <div id="sigTextPreview" style="min-height:80px;flex:1;min-width:220px;border:1px dashed var(--line);border-radius:10px;background:#fff;display:grid;place-items:center;padding:10px"></div>
+            <button class="btn" id="sigDlText" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0l-4-4m4 4l4-4"/><path d="M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2"/></svg>서명 이미지 저장</button>
           </div>
         </div>
         <div id="sigUploadPane" style="display:none">
           <div class="dropzone" data-drop="stamp" style="padding:24px">
             <div class="dropzone__title">도장/서명 이미지 (PNG 권장 · 배경 투명)</div>
-            <div class="dropzone__hint"><b>클릭해서 선택</b> 또는 드래그</div>
-            <input type="file" accept="image/png,image/jpeg" hidden data-input="stamp">
+            <div class="dropzone__hint"><b>클릭해서 선택</b> 또는 드래그 · 아이폰 HEIC 포함</div>
+            <input type="file" accept="image/*,.heic,.heif" hidden data-input="stamp">
           </div>
           <div id="stampPreview" style="margin-top:12px"></div>
+          <div class="btn-row" id="stampTools" style="margin-top:10px;display:none">
+            <button class="btn" id="stampNukki"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v10a2 2 0 01-2 2H9m0-16v16m0 0H5a2 2 0 01-2-2v-4"/></svg>배경 제거(누끼)</button>
+            <button class="btn" id="stampDlImg" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0l-4-4m4 4l4-4"/><path d="M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2"/></svg>이미지 저장</button>
+            <button class="btn btn--danger" id="stampDel" style="margin-left:auto"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg>삭제</button>
+          </div>
         </div>
       </div></div>
 
@@ -887,14 +931,32 @@ table.rt tr:hover td{background:#FBFCFE}
 
 <div class="toast-wrap" id="toastWrap"></div>
 
+<!-- 라이브러리 로드 실패(사내망 차단 등) 안내 배너 -->
+<div id="libBanner" style="display:none;position:fixed;left:0;right:0;bottom:0;z-index:200;background:#8A2417;color:#fff;padding:12px 18px;font-size:13px;line-height:1.5;box-shadow:0 -4px 16px rgba(0,0,0,.2)">
+  ⚠ PDF 처리용 라이브러리를 불러오지 못했습니다. 화면은 정상이지만 실제 변환·서명 기능은 동작하지 않습니다. 인터넷 연결(사내망에서 <b>cdn.jsdelivr.net</b> 허용)이 필요하거나, GitHub Pages 주소로 접속해 사용해주세요.
+  <button onclick="this.parentElement.style.display='none'" style="margin-left:12px;background:rgba(255,255,255,.2);border:0;color:#fff;border-radius:6px;padding:4px 10px;cursor:pointer">닫기</button>
+</div>
+
+<!-- ===== 외부 라이브러리 (CDN) =====
+     본문(HTML/CSS)이 먼저 그려진 뒤 로드되도록 body 끝에 배치.
+     실제 파일 데이터 처리는 전부 브라우저 내부에서만 수행됩니다. -->
+<script src="https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/heic2any@0.0.4/dist/heic2any.min.js"></script>
+
 <script>
 /* =====================================================================
    네패스 코코아팹 · PDF 통합 도구 — 공통 유틸 & 상태
    모든 처리는 브라우저 내부에서만 수행됩니다. (외부 전송 없음)
    ===================================================================== */
 'use strict';
-const { PDFDocument, degrees, rgb, StandardFonts } = PDFLib;
-pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
+/* 라이브러리가 로드되지 않아도 화면/네비게이션은 항상 동작하도록 안전하게 참조 */
+const { PDFDocument, degrees, rgb, StandardFonts } = (window.PDFLib || {});
+if(window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
+window.addEventListener('load', ()=>{
+  if(!window.PDFLib || !window.pdfjsLib || !window.XLSX){ const b=document.getElementById('libBanner'); if(b) b.style.display='block'; }
+});
 
 /* ---- 작은 헬퍼 ---- */
 const $  = (s, r=document) => r.querySelector(s);
@@ -1004,7 +1066,7 @@ function wireDrop(key, {multiple=true, accept='pdf', draggable=false, onChange}=
   if(!zone || !input) return;
   const isPdf = accept==='pdf';
   const accepts = f => isPdf ? f.type==='application/pdf' || /\.pdf$/i.test(f.name)
-                             : /^image\/(png|jpeg)/.test(f.type) || /\.(png|jpe?g)$/i.test(f.name);
+                             : isImageFile(f);
   async function add(files){
     const arr = Array.from(files).filter(accepts);
     if(!arr.length){ toast(isPdf?'PDF 파일만 올릴 수 있습니다':'PNG/JPG 이미지만 올릴 수 있습니다','err'); return; }
@@ -1044,6 +1106,51 @@ function textToPng(text, {fontSize=48, color='#0F2A43', font='Pretendard, sans-s
   return { dataUrl:c.toDataURL('image/png'), w, h };
 }
 async function dataUrlToBytes(dataUrl){ return new Uint8Array(await (await fetch(dataUrl)).arrayBuffer()); }
+
+/* 다양한 이미지 확장자 허용 (아이폰 HEIC/HEIF 포함) */
+const IMG_RE = /\.(png|jpe?g|webp|gif|bmp|hei[cf]|avif|tiff?)$/i;
+const isImageFile = f => /^image\//.test(f.type) || IMG_RE.test(f.name||'');
+const isHeic = f => /image\/hei[cf]/i.test(f.type) || /\.(hei[cf])$/i.test(f.name||'');
+function loadImg(src){ return new Promise((res,rej)=>{ const im=new Image(); im.onload=()=>res(im); im.onerror=()=>rej(new Error('이미지 로드 실패')); im.src=src; }); }
+/* 어떤 이미지 파일이든 브라우저가 다룰 수 있는 PNG dataURL 로 정규화 */
+async function fileToPngDataUrl(file){
+  let blob = file;
+  if(isHeic(file)){
+    if(typeof heic2any!=='function') throw new Error('HEIC 변환 모듈을 불러오지 못했습니다(인터넷 연결 확인)');
+    const out = await heic2any({ blob:file, toType:'image/png', quality:0.92 });
+    blob = Array.isArray(out) ? out[0] : out;
+  }
+  const url = URL.createObjectURL(blob);
+  try{
+    const img = await loadImg(url);
+    const c=document.createElement('canvas');
+    c.width=img.naturalWidth||img.width; c.height=img.naturalHeight||img.height;
+    c.getContext('2d').drawImage(img,0,0);
+    return c.toDataURL('image/png');
+  } finally { URL.revokeObjectURL(url); }
+}
+/* 흰/밝은 배경을 투명하게 (도장·서명 누끼) */
+function removeBg(dataUrl, threshold=238){
+  return new Promise(async (res,rej)=>{
+    try{
+      const img=await loadImg(dataUrl);
+      const c=document.createElement('canvas'); c.width=img.naturalWidth||img.width; c.height=img.naturalHeight||img.height;
+      const g=c.getContext('2d'); g.drawImage(img,0,0);
+      const id=g.getImageData(0,0,c.width,c.height); const d=id.data;
+      for(let i=0;i<d.length;i+=4){
+        const r=d[i],gr=d[i+1],b=d[i+2];
+        if(r>=threshold && gr>=threshold && b>=threshold){ d[i+3]=0; }
+        else if(r>220&&gr>220&&b>220){ d[i+3]=Math.min(d[i+3], Math.round((255-(r+gr+b)/3)*4)); }
+      }
+      g.putImageData(id,0,0);
+      res(c.toDataURL('image/png'));
+    }catch(e){ rej(e); }
+  });
+}
+/* 워터마크용 날짜/시간 문자열 */
+const dateStamp = (withTime)=>{ const d=new Date(); const p=n=>String(n).padStart(2,'0');
+  const day=`${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}`;
+  return withTime ? `${day} ${p(d.getHours())}:${p(d.getMinutes())}` : day; };
 
 /* =====================================================================
    1) 합치기
@@ -1395,6 +1502,13 @@ async function dataUrlToBytes(dataUrl){ return new Uint8Array(await (await fetch
   $('#wmPreviewBtn').addEventListener('click', renderPreview);
   ['wmText','wmSize','wmColor','wmOpacity'].forEach(id=>$('#'+id).addEventListener('input', liveUpdate));
   $('#wmTile').addEventListener('change', liveUpdate);
+  function insertStamp(withTime){
+    const f=$('#wmText'); const base=f.value.trim();
+    f.value = (base?base+'_':'') + dateStamp(withTime);
+    liveUpdate();
+  }
+  $('#wmDate').addEventListener('click', ()=>insertStamp(false));
+  $('#wmDateTime').addEventListener('click', ()=>insertStamp(true));
   $('[data-act="watermark"]').addEventListener('click', async ()=>{
     const it=getStore(key)[0]; if(!it)return;
     const text=$('#wmText').value.trim(); if(!text){ toast('워터마크 문구를 입력하세요','err'); return; }
@@ -1520,9 +1634,15 @@ async function dataUrlToBytes(dataUrl){ return new Uint8Array(await (await fetch
         for(let i=0;i<list.length;i++){
           setProgress(key,i/list.length,`PDF 생성 중… (${i+1}/${list.length})`);
           const it=list[i];
-          const isPng=/png$/i.test(it.name)||it.file.type==='image/png';
-          const bytes=freshU8(it.buf);
-          const img= isPng ? await out.embedPng(bytes) : await out.embedJpg(bytes);
+          const isPng=/\.png$/i.test(it.name)||it.file.type==='image/png';
+          const isJpg=/\.jpe?g$/i.test(it.name)||it.file.type==='image/jpeg';
+          let img;
+          if(isPng){ img=await out.embedPng(freshU8(it.buf)); }
+          else if(isJpg){ img=await out.embedJpg(freshU8(it.buf)); }
+          else { // HEIC/webp/gif/bmp 등 → PNG 정규화 후 삽입
+            const png=await fileToPngDataUrl(it.file);
+            img=await out.embedPng(await dataUrlToBytes(png));
+          }
           let pw,ph;
           if(size==='a4'){ [pw,ph]=A4; }
           else if(size==='a4l'){ [pw,ph]=[A4[1],A4[0]]; }
@@ -1875,6 +1995,7 @@ async function dataUrlToBytes(dataUrl){ return new Uint8Array(await (await fetch
   const key='sign';
   let sigMode='draw';
   let stampDataUrl=null;
+  let textSigUrl=null;
   let hasDrawn=false;
   // 미리보기/배치 상태
   let prevScale=1, prevPageNum=1, prevReady=false;
@@ -1888,12 +2009,18 @@ async function dataUrlToBytes(dataUrl){ return new Uint8Array(await (await fetch
   };
   wireDrop(key,{multiple:false,onChange:refresh});
 
+  async function dlDataUrl(url, name){
+    try{ download(new Blob([await dataUrlToBytes(url)],{type:'image/png'}), name); toast('서명 이미지 저장됨'); }
+    catch(e){ toast('이미지 저장 실패','err'); }
+  }
+
   /* ---- 모드 토글 ---- */
   $('#sigMode').addEventListener('click', e=>{
     const b=e.target.closest('button'); if(!b)return;
     sigMode=b.dataset.m;
     $$('#sigMode button').forEach(x=>x.classList.toggle('active',x===b));
     $('#sigDrawPane').style.display = sigMode==='draw'?'block':'none';
+    $('#sigTextPane').style.display = sigMode==='text'?'block':'none';
     $('#sigUploadPane').style.display = sigMode==='upload'?'block':'none';
     syncBoxImage(); updateSaveBtn();
   });
@@ -1904,30 +2031,78 @@ async function dataUrlToBytes(dataUrl){ return new Uint8Array(await (await fetch
   let drawing=false, last=null;
   const pt=e=>{ const r=cv.getBoundingClientRect(); return { x:(e.clientX-r.left)*(cv.width/r.width), y:(e.clientY-r.top)*(cv.height/r.height) }; };
   cv.addEventListener('pointerdown', e=>{ drawing=true; last=pt(e); cv.setPointerCapture(e.pointerId); });
-  cv.addEventListener('pointermove', e=>{ if(!drawing)return; const p=pt(e); cx.beginPath(); cx.moveTo(last.x,last.y); cx.lineTo(p.x,p.y); cx.stroke(); last=p; hasDrawn=true; });
+  cv.addEventListener('pointermove', e=>{ if(!drawing)return; const p=pt(e); cx.beginPath(); cx.moveTo(last.x,last.y); cx.lineTo(p.x,p.y); cx.stroke(); last=p; hasDrawn=true; $('#sigDlDraw').disabled=false; });
   cv.addEventListener('pointerup', ()=>{ if(drawing){ drawing=false; syncBoxImage(); updateSaveBtn(); } });
   $('#sigColor').addEventListener('input', ()=>{ cx.strokeStyle=$('#sigColor').value; });
-  $('#sigClear').addEventListener('click', ()=>{ cx.clearRect(0,0,cv.width,cv.height); hasDrawn=false; syncBoxImage(); updateSaveBtn(); });
+  $('#sigClear').addEventListener('click', ()=>{ cx.clearRect(0,0,cv.width,cv.height); hasDrawn=false; $('#sigDlDraw').disabled=true; syncBoxImage(); updateSaveBtn(); });
+  $('#sigDlDraw').addEventListener('click', ()=>{ if(hasDrawn) dlDataUrl(cv.toDataURL('image/png'), `서명_${ts()}.png`); });
 
-  /* ---- 도장 이미지 업로드 ---- */
+  /* ---- 텍스트로 서명 만들기 ---- */
+  async function makeTextSig(){
+    const txt=$('#sigTxt').value.trim();
+    if(!txt){ textSigUrl=null; $('#sigTextPreview').innerHTML='<span style="color:var(--ink-300);font-size:13px">서명 문구를 입력하세요</span>'; $('#sigDlText').disabled=true; syncBoxImage(); updateSaveBtn(); return; }
+    const font=$('#sigFont').value;
+    const size=Math.max(12, +$('#sigTxtSize').value||84);
+    const color=$('#sigTxtColor').value;
+    try{ await document.fonts.load(`${size}px ${font}`, txt); }catch(_){}
+    const pad=Math.round(size*0.32);
+    const meas=document.createElement('canvas').getContext('2d');
+    meas.font=`${size}px ${font}`;
+    const w=Math.ceil(meas.measureText(txt).width)+pad*2;
+    const h=Math.ceil(size*1.5)+pad*2;
+    const c=document.createElement('canvas'); c.width=w; c.height=h;
+    const g=c.getContext('2d');
+    g.font=`${size}px ${font}`; g.fillStyle=color; g.textBaseline='middle'; g.textAlign='center';
+    g.fillText(txt, w/2, h/2);
+    textSigUrl=c.toDataURL('image/png');
+    $('#sigTextPreview').innerHTML=`<img src="${textSigUrl}" style="max-width:100%;max-height:120px">`;
+    $('#sigDlText').disabled=false;
+    syncBoxImage(); updateSaveBtn();
+  }
+  ['sigTxt','sigFont','sigTxtSize','sigTxtColor'].forEach(id=>{
+    const el=$('#'+id); el.addEventListener('input', makeTextSig); el.addEventListener('change', makeTextSig);
+  });
+  $('#sigDlText').addEventListener('click', ()=>{ if(textSigUrl) dlDataUrl(textSigUrl, `서명_${ts()}.png`); });
+  makeTextSig();
+
+  /* ---- 도장 이미지 업로드 (HEIC 지원 · 누끼 · 삭제) ---- */
   (function(){
     const zone=$('[data-drop="stamp"]'), input=$('[data-input="stamp"]');
-    const handle=files=>{
-      const f=Array.from(files).find(x=>/^image\/(png|jpeg)/.test(x.type)||/\.(png|jpe?g)$/i.test(x.name));
-      if(!f){ toast('PNG/JPG 이미지만 올릴 수 있습니다','err'); return; }
-      const rd=new FileReader();
-      rd.onload=()=>{ stampDataUrl=rd.result; $('#stampPreview').innerHTML=`<img src="${stampDataUrl}" style="max-height:120px;max-width:100%;border:1px solid var(--line);border-radius:8px;background:#fff;padding:6px">`; syncBoxImage(); updateSaveBtn(); };
-      rd.readAsDataURL(f);
+    function showStamp(){
+      if(stampDataUrl){
+        $('#stampPreview').innerHTML=`<img src="${stampDataUrl}" style="max-height:130px;max-width:100%;border:1px solid var(--line);border-radius:8px;background:repeating-conic-gradient(#eef2f6 0% 25%, #fff 0% 50%) 50%/16px 16px;padding:6px">`;
+        $('#stampTools').style.display='flex'; $('#stampDlImg').disabled=false;
+      }else{
+        $('#stampPreview').innerHTML=''; $('#stampTools').style.display='none'; $('#stampDlImg').disabled=true;
+      }
+      syncBoxImage(); updateSaveBtn();
+    }
+    const handle=async files=>{
+      const f=Array.from(files).find(isImageFile);
+      if(!f){ toast('이미지 파일만 올릴 수 있습니다','err'); return; }
+      try{
+        if(isHeic(f)) toast('HEIC 변환 중…');
+        stampDataUrl=await fileToPngDataUrl(f);
+        showStamp();
+      }catch(e){ console.error(e); toast('이미지 처리 실패: '+(e.message||e),'err'); }
     };
     zone.addEventListener('click',()=>input.click());
     input.addEventListener('change',e=>{ handle(e.target.files); input.value=''; });
     ['dragenter','dragover'].forEach(ev=>zone.addEventListener(ev,e=>{ e.preventDefault(); zone.classList.add('dragover'); }));
     ['dragleave','drop'].forEach(ev=>zone.addEventListener(ev,e=>{ e.preventDefault(); zone.classList.remove('dragover'); }));
-    zone.addEventListener('drop',e=>handle(e.dataTransfer.files));
+    zone.addEventListener('drop',e=>{ e.preventDefault(); handle(e.dataTransfer.files); });
+    $('#stampNukki').addEventListener('click', async ()=>{
+      if(!stampDataUrl){ toast('먼저 이미지를 올려주세요','err'); return; }
+      try{ stampDataUrl=await removeBg(stampDataUrl); showStamp(); toast('배경 제거 완료'); }
+      catch(e){ toast('배경 제거 실패','err'); }
+    });
+    $('#stampDlImg').addEventListener('click', ()=>{ if(stampDataUrl) dlDataUrl(stampDataUrl, `도장_${ts()}.png`); });
+    $('#stampDel').addEventListener('click', ()=>{ stampDataUrl=null; showStamp(); toast('도장 이미지를 삭제했습니다'); });
   })();
 
   function currentSig(){
     if(sigMode==='draw') return hasDrawn ? cv.toDataURL('image/png') : null;
+    if(sigMode==='text') return textSigUrl;
     return stampDataUrl;
   }
 
