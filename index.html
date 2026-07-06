@@ -461,6 +461,7 @@ table.rt tr:hover td{background:#FBFCFE}
         </div>
         <div class="filelist" data-files="merge"></div>
         <div class="field__hint" style="margin-top:2px">파일 옆 칸에 가져올 페이지를 지정할 수 있습니다 (비우면 전체) — 예: <code>1-3,5</code>, 역순도 가능 <code>5-1</code></div>
+        <div id="mgPreview"></div>
         <div class="btn-row">
           <button class="btn btn--primary btn--lg" data-act="merge" disabled>PDF 합치기</button>
           <button class="btn btn--ghost" data-clear="merge">목록 비우기</button>
@@ -503,6 +504,7 @@ table.rt tr:hover td{background:#FBFCFE}
             <input class="input" id="splitEvery" type="number" min="1" value="2" style="max-width:160px">
           </div>
         </div>
+        <div id="spPreview"></div>
         <div class="btn-row">
           <button class="btn btn--primary btn--lg" data-act="split" disabled>분할 실행</button>
           <button class="btn btn--ghost" data-clear="split">초기화</button>
@@ -602,6 +604,7 @@ table.rt tr:hover td{background:#FBFCFE}
           </div>
           <div class="field__hint">강도가 높을수록 용량은 줄지만 화질이 낮아집니다. 텍스트 선택 기능은 사라지고 이미지화됩니다.</div>
         </div>
+        <div id="cmpPreview"></div>
         <div class="note warn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.3 3.9L1.8 18a2 2 0 001.7 3h17a2 2 0 001.7-3L13.7 3.9a2 2 0 00-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>이 방식은 각 페이지를 이미지로 변환합니다. 본문 텍스트 검색·복사가 필요한 문서에는 권장하지 않습니다.</div>
         <div class="btn-row">
           <button class="btn btn--primary btn--lg" data-act="compress" disabled>압축 실행</button>
@@ -633,6 +636,7 @@ table.rt tr:hover td{background:#FBFCFE}
           <input type="file" accept="application/pdf" hidden data-input="password">
         </div>
         <div class="filelist" data-files="password"></div>
+        <div id="pwPreview"></div>
         <div class="field" style="margin-top:18px">
           <label class="field__label" id="pwLabel">설정할 비밀번호</label>
           <input class="input" id="pwInput" type="password" placeholder="비밀번호 입력" style="max-width:340px" autocomplete="new-password">
@@ -734,6 +738,8 @@ table.rt tr:hover td{background:#FBFCFE}
           <div class="field"><label class="field__label">시작 번호</label><input class="input" id="pnStart" type="number" min="0" value="1" style="max-width:140px"></div>
           <div class="field"><label class="field__label">글자 크기</label><input class="input" id="pnSize" type="number" min="6" max="36" value="11" style="max-width:140px"></div>
         </div>
+        <div class="field"><label class="field__label">미리볼 페이지</label><input class="input" id="pnPreviewPage" type="number" min="1" value="1" style="max-width:140px"></div>
+        <div id="pnPreview"></div>
         <div class="btn-row">
           <button class="btn btn--primary btn--lg" data-act="pagenum" disabled>번호 넣기</button>
           <button class="btn btn--ghost" data-clear="pagenum">초기화</button>
@@ -819,6 +825,13 @@ table.rt tr:hover td{background:#FBFCFE}
           </div>
           <button class="btn" id="exAddField" style="margin-top:12px"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>항목 추가</button>
           <div class="chips" id="exFieldChips"><span class="chip empty">아직 추가된 항목이 없습니다</span></div>
+          <div class="field" style="margin-top:16px"><label class="field__label">원본 미리보기 (첫 파일 기준)</label>
+            <div style="display:flex;gap:8px;align-items:center">
+              <input class="input" id="exLabelPreviewPage" type="number" min="1" value="1" style="max-width:120px">
+              <button class="btn" id="exLabelPreviewBtn">미리보기 불러오기</button>
+            </div>
+          </div>
+          <div id="exLabelPreview"></div>
         </div>
 
         <!-- 좌표 방식 -->
@@ -1094,7 +1107,7 @@ function renderFileList(key, {draggable=false, showRange=false, onChange}={}){
     if(showRange){
       const rangeInput=chip.querySelector('.filechip__range');
       rangeInput.addEventListener('mousedown', e=>e.stopPropagation());
-      rangeInput.addEventListener('input', e=>{ it.range=e.target.value; });
+      rangeInput.addEventListener('input', e=>{ it.range=e.target.value; onChange&&onChange(); });
     }
     if(draggable) attachChipDnD(chip, key, draggable, onChange, showRange);
     wrap.appendChild(chip);
@@ -1226,9 +1239,61 @@ function parsePageOrder(str, total){
    ===================================================================== */
 (function(){
   const key='merge';
-  const refresh = ()=>{ $('[data-act="merge"]').disabled = getStore(key).length < 1; };
+  let previewToken=0, mgDebounce=null;
+  const refresh = ()=>{
+    $('[data-act="merge"]').disabled = getStore(key).length < 1;
+    clearTimeout(mgDebounce); mgDebounce=setTimeout(renderMgPreview, 220);
+  };
   wireDrop(key, {multiple:true, draggable:true, showRange:true, onChange:refresh});
   wireClear(key, refresh);
+
+  async function ensurePageCount(it){
+    if(it.pageCount==null){
+      const pdf = await pdfjsLib.getDocument({data:freshU8(it.buf)}).promise;
+      it.pageCount = pdf.numPages; it._pdfDoc = pdf;
+    }
+    return it.pageCount;
+  }
+  async function thumbForItem(it){
+    const total = await ensurePageCount(it);
+    const rangeStr=(it.range||'').trim();
+    let firstPage=1;
+    if(rangeStr){ const idxs=parsePageOrder(rangeStr,total); if(idxs.length) firstPage=idxs[0]+1; }
+    const page = await it._pdfDoc.getPage(Math.min(firstPage,total));
+    const vp0=page.getViewport({scale:1});
+    const vp=page.getViewport({scale:150/vp0.width});
+    const c=document.createElement('canvas'); c.width=Math.round(vp.width); c.height=Math.round(vp.height);
+    const g=c.getContext('2d'); g.fillStyle='#fff'; g.fillRect(0,0,c.width,c.height);
+    await page.render({canvasContext:g, viewport:vp}).promise;
+    return {dataUrl:c.toDataURL('image/png'), total, firstPage};
+  }
+  async function renderMgPreview(){
+    const host=$('#mgPreview'); const list=getStore(key);
+    const tk=++previewToken;
+    if(!list.length){ host.innerHTML=''; return; }
+    const grid=document.createElement('div');
+    grid.style.cssText='display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:10px;margin-top:12px';
+    const info=document.createElement('div'); info.className='field__hint';
+    info.textContent='순서대로 이렇게 합쳐집니다 (드래그로 순서 변경, 범위 입력 시 첫 페이지만 미리보기)';
+    host.innerHTML=''; host.appendChild(info); host.appendChild(grid);
+    for(let i=0;i<list.length;i++){
+      if(tk!==previewToken) return;
+      const it=list[i];
+      let r; try{ r=await thumbForItem(it); }catch(e){ r=null; }
+      if(tk!==previewToken) return;
+      const cell=document.createElement('div'); cell.style.textAlign='center';
+      const box=document.createElement('div');
+      box.style.cssText='border:1px solid var(--line);border-radius:6px;background:#fff;min-height:90px;display:grid;place-items:center;overflow:hidden;box-shadow:0 1px 3px rgba(15,32,55,.08)';
+      if(r){ const im=document.createElement('img'); im.src=r.dataUrl; im.style.cssText='width:100%;display:block'; box.appendChild(im); }
+      else{ box.textContent='미리보기 불가'; box.style.fontSize='11px'; box.style.color='var(--ink-400)'; }
+      const cap=document.createElement('div');
+      cap.style.cssText='font-size:11px;color:var(--ink-400);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis';
+      const rangeStr=(it.range||'').trim();
+      cap.textContent = `${i+1}. ${it.name}` + (r ? (rangeStr?` (${rangeStr})`:` (전체 ${r.total}p)`) : '');
+      cell.appendChild(box); cell.appendChild(cap); grid.appendChild(cell);
+    }
+  }
+
   $('[data-act="merge"]').addEventListener('click', async ()=>{
     const list = getStore(key);
     if(list.length<2){ toast('합칠 파일을 2개 이상 올려주세요','err'); return; }
@@ -1269,10 +1334,13 @@ function parsePageOrder(str, total){
 (function(){
   const key='split';
   let mode='range';
+  let spCache=null; // {file, pdf, total, thumbs:[]}
   const refresh = ()=>{
     const has = getStore(key).length===1;
     $('#splitOpts').style.display = has ? 'block' : 'none';
     $('[data-act="split"]').disabled = !has;
+    if(!has){ spCache=null; $('#spPreview').innerHTML=''; }
+    else renderSplitPreview();
   };
   wireDrop(key, {multiple:false, onChange:refresh});
   wireClear(key, refresh);
@@ -1282,6 +1350,7 @@ function parsePageOrder(str, total){
     $$('#splitMode button').forEach(x=>x.classList.toggle('active',x===b));
     $('#splitRangeWrap').style.display = mode==='range'?'block':'none';
     $('#splitEveryWrap').style.display = mode==='every'?'block':'none';
+    recolorSplitPreview();
   });
   function parseRanges(str, max){
     const out=[];
@@ -1293,6 +1362,65 @@ function parsePageOrder(str, total){
     });
     return out.filter(([a,b])=>a>=1&&b>=a&&b<=max);
   }
+  const SP_PALETTE=['#0D9488','#2563EB','#D97706','#DB2777','#7C3AED','#059669','#DC2626','#0891B2'];
+  function computeGroups(total){
+    if(mode==='range'){
+      const ranges=parseRanges($('#splitRanges').value||'', total);
+      const groups=new Array(total).fill(-1);
+      ranges.forEach(([a,b],gi)=>{ for(let p=a;p<=b;p++) groups[p-1]=gi; });
+      return {groups, fileCount:ranges.length};
+    }else if(mode==='each'){
+      return {groups:Array.from({length:total},(_,i)=>i), fileCount:total};
+    }else{
+      const n=Math.max(1, +$('#splitEvery').value||1);
+      const groups=Array.from({length:total},(_,i)=>Math.floor(i/n));
+      return {groups, fileCount:Math.ceil(total/n)};
+    }
+  }
+  async function renderSplitPreview(){
+    const it=getStore(key)[0]; const host=$('#spPreview'); if(!it){ host.innerHTML=''; return; }
+    if(!spCache || spCache.file!==it.file){
+      host.innerHTML='<div class="field__hint" style="margin-top:10px">미리보기 생성 중…</div>';
+      const pdf = await pdfjsLib.getDocument({data:freshU8(it.buf)}).promise;
+      const total=pdf.numPages;
+      const thumbs=[];
+      const capped=Math.min(total,80);
+      for(let i=1;i<=capped;i++){
+        const page=await pdf.getPage(i);
+        const vp0=page.getViewport({scale:1});
+        const vp=page.getViewport({scale:88/vp0.width});
+        const c=document.createElement('canvas'); c.width=Math.round(vp.width); c.height=Math.round(vp.height);
+        const g=c.getContext('2d'); g.fillStyle='#fff'; g.fillRect(0,0,c.width,c.height);
+        await page.render({canvasContext:g, viewport:vp}).promise;
+        thumbs.push(c.toDataURL('image/png'));
+      }
+      spCache={file:it.file, total, thumbs, capped};
+    }
+    recolorSplitPreview();
+  }
+  function recolorSplitPreview(){
+    const host=$('#spPreview'); if(!spCache) return;
+    const {total, thumbs, capped}=spCache;
+    const {groups, fileCount}=computeGroups(total);
+    const grid=document.createElement('div');
+    grid.style.cssText='display:grid;grid-template-columns:repeat(auto-fill,minmax(76px,1fr));gap:8px;margin-top:10px';
+    for(let i=0;i<capped;i++){
+      const g=groups[i];
+      const color = g==null||g<0 ? '#CBD5E1' : SP_PALETTE[g%SP_PALETTE.length];
+      const cell=document.createElement('div'); cell.style.textAlign='center';
+      const im=document.createElement('img'); im.src=thumbs[i];
+      im.style.cssText=`width:100%;border:2.5px solid ${color};border-radius:6px;display:block`;
+      const cap=document.createElement('div'); cap.style.cssText='font-size:10.5px;color:var(--ink-400);margin-top:2px'; cap.textContent='p'+(i+1);
+      cell.appendChild(im); cell.appendChild(cap); grid.appendChild(cell);
+    }
+    const info=document.createElement('div'); info.className='field__hint';
+    if(mode==='range') info.textContent = `${fileCount}개 파일로 분할 예정` + (capped<total?` · 미리보기는 ${capped}페이지까지 표시`:'') + ' (회색 = 어떤 파일에도 포함되지 않는 페이지)';
+    else if(mode==='each') info.textContent = `총 ${total}개의 낱장 파일로 분할됩니다`;
+    else info.textContent = `총 ${fileCount}개 파일로 분할됩니다 (파일당 ${+$('#splitEvery').value||1}장씩)`;
+    host.innerHTML=''; host.appendChild(info); host.appendChild(grid);
+  }
+  $('#splitRanges').addEventListener('input', ()=>{ if(mode==='range') recolorSplitPreview(); });
+  $('#splitEvery').addEventListener('input', ()=>{ if(mode==='every') recolorSplitPreview(); });
   $('[data-act="split"]').addEventListener('click', async ()=>{
     const it = getStore(key)[0]; if(!it) return;
     clearResult(key);
@@ -1428,12 +1556,53 @@ function parsePageOrder(str, total){
    ===================================================================== */
 (function(){
   const key='compress';
-  let q=0.65, sc=1.2;
-  const refresh=()=>{ $('[data-act="compress"]').disabled = getStore(key).length!==1; };
+  let q=0.65, sc=1.2, cmpDebounce=null;
+  const refresh=()=>{ $('[data-act="compress"]').disabled = getStore(key).length!==1; renderCmpPreview(); };
   wireDrop(key,{multiple:false,onChange:refresh});
   wireClear(key,refresh);
   $('#cmpLevel').addEventListener('click', e=>{ const b=e.target.closest('button'); if(!b)return;
-    q=+b.dataset.q; sc=+b.dataset.s; $$('#cmpLevel button').forEach(x=>x.classList.toggle('active',x===b)); });
+    q=+b.dataset.q; sc=+b.dataset.s; $$('#cmpLevel button').forEach(x=>x.classList.toggle('active',x===b));
+    clearTimeout(cmpDebounce); cmpDebounce=setTimeout(renderCmpPreview,150); });
+  async function renderCmpPreview(){
+    const it=getStore(key)[0]; const host=$('#cmpPreview'); if(!it){ host.innerHTML=''; return; }
+    try{
+      const pdf=await pdfjsLib.getDocument({data:freshU8(it.buf)}).promise;
+      const page=await pdf.getPage(1);
+      const vp0=page.getViewport({scale:1});
+      const origScale=Math.min(260/vp0.width,2);
+      const vpOrig=page.getViewport({scale:origScale});
+      const co=document.createElement('canvas'); co.width=Math.round(vpOrig.width); co.height=Math.round(vpOrig.height);
+      const go=co.getContext('2d'); go.fillStyle='#fff'; go.fillRect(0,0,co.width,co.height);
+      await page.render({canvasContext:go, viewport:vpOrig}).promise;
+
+      const vpCmp=page.getViewport({scale:sc});
+      const cc=document.createElement('canvas'); cc.width=Math.round(vpCmp.width); cc.height=Math.round(vpCmp.height);
+      const gc=cc.getContext('2d'); gc.fillStyle='#fff'; gc.fillRect(0,0,cc.width,cc.height);
+      await page.render({canvasContext:gc, viewport:vpCmp}).promise;
+      const jpegUrl=cc.toDataURL('image/jpeg', q);
+      const dispScale=Math.min(260/vpCmp.width,1);
+      const cd=document.createElement('canvas'); cd.width=Math.round(vpCmp.width*dispScale); cd.height=Math.round(vpCmp.height*dispScale);
+      const gd=cd.getContext('2d');
+      const im=await loadImg(jpegUrl);
+      gd.drawImage(im,0,0,cd.width,cd.height);
+
+      host.innerHTML='';
+      const row=document.createElement('div');
+      row.style.cssText='display:flex;gap:16px;flex-wrap:wrap;margin-top:14px';
+      const mk=(canvas,label)=>{
+        const box=document.createElement('div'); box.style.textAlign='center';
+        canvas.style.cssText='max-width:260px;border:1px solid var(--line);border-radius:8px;box-shadow:0 1px 4px rgba(15,32,55,.1);display:block';
+        const cap=document.createElement('div'); cap.style.cssText='font-size:11.5px;color:var(--ink-500);margin-top:6px;font-weight:600'; cap.textContent=label;
+        box.appendChild(canvas); box.appendChild(cap); return box;
+      };
+      row.appendChild(mk(co,'원본 (1페이지)'));
+      row.appendChild(mk(cd,'압축 후 미리보기'));
+      host.appendChild(row);
+      const hint=document.createElement('div'); hint.className='field__hint'; hint.style.marginTop='8px';
+      hint.textContent='1페이지 기준 미리보기이며, 실제 결과는 문서 내용에 따라 다를 수 있습니다.';
+      host.appendChild(hint);
+    }catch(e){ console.error(e); host.innerHTML=''; }
+  }
   $('[data-act="compress"]').addEventListener('click', async ()=>{
     const it=getStore(key)[0]; if(!it)return; clearResult(key);
     try{
@@ -1471,9 +1640,34 @@ function parsePageOrder(str, total){
 (function(){
   const key='password';
   let mode='set', Cantoo=null;
-  const refresh=()=>{ $('[data-act="password"]').disabled = getStore(key).length!==1; };
+  const refresh=()=>{ $('[data-act="password"]').disabled = getStore(key).length!==1; renderPwPreview(); };
   wireDrop(key,{multiple:false,onChange:refresh});
   wireClear(key,refresh);
+  async function renderPwPreview(){
+    const it=getStore(key)[0]; const host=$('#pwPreview'); if(!it){ host.innerHTML=''; return; }
+    host.innerHTML='';
+    try{
+      const pdf=await pdfjsLib.getDocument({data:freshU8(it.buf)}).promise;
+      const page=await pdf.getPage(1);
+      const vp0=page.getViewport({scale:1});
+      const scale=Math.min(180/vp0.width,2);
+      const vp=page.getViewport({scale});
+      const c=document.createElement('canvas'); c.width=Math.round(vp.width); c.height=Math.round(vp.height);
+      const g=c.getContext('2d'); g.fillStyle='#fff'; g.fillRect(0,0,c.width,c.height);
+      await page.render({canvasContext:g, viewport:vp}).promise;
+      const row=document.createElement('div');
+      row.style.cssText='display:flex;gap:14px;align-items:center;margin-top:14px';
+      c.style.cssText='width:110px;border:1px solid var(--line);border-radius:6px;box-shadow:0 1px 3px rgba(15,32,55,.1)';
+      const meta=document.createElement('div'); meta.style.cssText='font-size:12.5px;color:var(--ink-600)';
+      meta.innerHTML=`<div style="font-weight:600">${it.name}</div><div style="color:var(--ink-400);margin-top:4px">${pdf.numPages}페이지 · ${fmtSize(it.size)}</div>`;
+      row.appendChild(c); row.appendChild(meta);
+      host.appendChild(row);
+    }catch(e){
+      const note=document.createElement('div'); note.className='field__hint'; note.style.marginTop='10px';
+      note.textContent='미리보기를 표시할 수 없습니다 (이미 암호로 보호된 파일일 수 있습니다).';
+      host.appendChild(note);
+    }
+  }
   $('#pwMode').addEventListener('click', e=>{ const b=e.target.closest('button'); if(!b)return;
     mode=b.dataset.m; $$('#pwMode button').forEach(x=>x.classList.toggle('active',x===b));
     $('#pwLabel').textContent = mode==='set' ? '설정할 비밀번호' : '현재 비밀번호';
@@ -1624,9 +1818,50 @@ function parsePageOrder(str, total){
    ===================================================================== */
 (function(){
   const key='pagenum';
-  const refresh=()=>{ $('[data-act="pagenum"]').disabled = getStore(key).length!==1; };
+  let pnDebounce=null;
+  const refresh=()=>{ $('[data-act="pagenum"]').disabled = getStore(key).length!==1; renderPnPreview(); };
   wireDrop(key,{multiple:false,onChange:refresh});
   wireClear(key,refresh);
+  async function renderPnPreview(){
+    const it=getStore(key)[0]; const host=$('#pnPreview'); if(!it){ host.innerHTML=''; return; }
+    try{
+      const pdf=await pdfjsLib.getDocument({data:freshU8(it.buf)}).promise;
+      const total=pdf.numPages;
+      const pn=Math.min(Math.max(1,+$('#pnPreviewPage').value||1), total);
+      const page=await pdf.getPage(pn);
+      const vp0=page.getViewport({scale:1});
+      const scale=Math.min(520/vp0.width,2);
+      const vp=page.getViewport({scale});
+      const c=document.createElement('canvas'); c.width=Math.round(vp.width); c.height=Math.round(vp.height);
+      const g=c.getContext('2d'); g.fillStyle='#fff'; g.fillRect(0,0,c.width,c.height);
+      await page.render({canvasContext:g, viewport:vp}).promise;
+
+      const fmt=$('#pnFormat').value, pos=$('#pnPos').value;
+      const start=+$('#pnStart').value||1, size=+$('#pnSize').value||11;
+      const n=start+(pn-1);
+      const label = fmt==='n'?`${n}` : fmt==='n/total'?`${n} / ${total}` : fmt==='dash'?`- ${n} -` : `Page ${n}`;
+      const fsize=size*scale;
+      g.font=`${fsize}px Helvetica, Arial, sans-serif`;
+      g.fillStyle='rgba(64,77,92,.92)'; g.textBaseline='alphabetic';
+      const tw=g.measureText(label).width;
+      const m=28*scale;
+      const top=pos[0]==='t';
+      let x; if(pos[1]==='c') x=(c.width-tw)/2; else if(pos[1]==='r') x=c.width-m-tw; else x=m;
+      const y = top ? (m+fsize*0.8) : (c.height-m);
+      g.fillText(label, x, y);
+
+      host.innerHTML='';
+      const stage=document.createElement('div'); stage.className='canvas-stage'; stage.appendChild(c);
+      host.appendChild(stage);
+      const cap=document.createElement('div'); cap.style.cssText='font-size:11.5px;color:var(--ink-400);margin-top:6px';
+      cap.textContent=`${pn}페이지 기준 미리보기 (실제 글꼴과 미세하게 다를 수 있음) · 설정을 바꾸면 자동 갱신됩니다`;
+      host.appendChild(cap);
+    }catch(e){ console.error(e); host.innerHTML=''; }
+  }
+  function liveUpdate(){ clearTimeout(pnDebounce); pnDebounce=setTimeout(renderPnPreview,200); }
+  ['pnFormat','pnPos','pnStart','pnSize','pnPreviewPage'].forEach(id=>{
+    $('#'+id).addEventListener('input', liveUpdate); $('#'+id).addEventListener('change', liveUpdate);
+  });
   $('[data-act="pagenum"]').addEventListener('click', async ()=>{
     const it=getStore(key)[0]; if(!it)return; clearResult(key);
     const fmt=$('#pnFormat').value, pos=$('#pnPos').value;
@@ -2089,6 +2324,30 @@ function parsePageOrder(str, total){
     });
   }
   renderLabelChips(); renderCoordChips();
+
+  /* ---- 라벨 방식: 원본 페이지 미리보기 ---- */
+  $('#exLabelPreviewBtn').addEventListener('click', async ()=>{
+    const it=getStore(key)[0]; const host=$('#exLabelPreview');
+    if(!it){ toast('먼저 PDF를 올려주세요','err'); return; }
+    const pageNum=Math.max(1, +$('#exLabelPreviewPage').value||1);
+    try{
+      const pdf=await pdfjsLib.getDocument({data:freshU8(it.buf)}).promise;
+      if(pageNum>pdf.numPages){ toast(`이 PDF는 ${pdf.numPages}페이지까지 있습니다`,'err'); return; }
+      const page=await pdf.getPage(pageNum);
+      const vp0=page.getViewport({scale:1});
+      const scale=Math.min(560/vp0.width,2);
+      const vp=page.getViewport({scale});
+      const c=document.createElement('canvas'); c.width=Math.round(vp.width); c.height=Math.round(vp.height);
+      const g=c.getContext('2d'); g.fillStyle='#fff'; g.fillRect(0,0,c.width,c.height);
+      await page.render({canvasContext:g, viewport:vp}).promise;
+      host.innerHTML='';
+      const stage=document.createElement('div'); stage.className='canvas-stage'; stage.appendChild(c);
+      host.appendChild(stage);
+      const cap=document.createElement('div'); cap.style.cssText='font-size:11.5px;color:var(--ink-400);margin-top:6px';
+      cap.textContent=`첫 번째 파일 "${it.name}"의 ${pageNum}페이지 · 라벨 문구를 눈으로 확인해 위에 입력하세요`;
+      host.appendChild(cap);
+    }catch(e){ console.error(e); toast('미리보기 실패: '+(e.message||e),'err'); }
+  });
 
   /* ---- 텍스트를 줄 단위로 묶기 (라벨 방식용) ---- */
   async function pageLines(page){
